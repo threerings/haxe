@@ -605,6 +605,10 @@ try
 			com.foptimize <- false;
 			Common.define com "no_opt";
 		), ": disable code optimizations");
+		("--js-contain", Arg.Unit (fun() ->
+			com.js_contain <- true;
+			Common.define com "js_contain";
+		), ": contain JS output in a closure");
 		("--php-front",Arg.String (fun f ->
 			if com.php_front <> None then raise (Arg.Bad "Multiple --php-front");
 			com.php_front <- Some f;

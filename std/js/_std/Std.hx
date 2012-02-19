@@ -65,14 +65,14 @@
 		String.__name__ = ["String"];
 		Array.prototype.__class__ = $hxClasses['Array'] = Array;
 		Array.__name__ = ["Array"];
-		Int = $hxClasses['Int'] = { __name__ : ["Int"] };
-		Dynamic = $hxClasses['Dynamic'] = { __name__ : ["Dynamic"] };
-		Float = $hxClasses['Float'] = __js__("Number");
+		var Int = $hxClasses['Int'] = { __name__ : ["Int"] };
+		var Dynamic = $hxClasses['Dynamic'] = { __name__ : ["Dynamic"] };
+		var Float = $hxClasses['Float'] = __js__("Number");
 		Float.__name__ = ["Float"];
-		Bool = $hxClasses['Bool'] = { __ename__ : ["Bool"] };
-		Class = $hxClasses['Class'] = { __name__ : ["Class"] };
-		Enum = {};
-		Void = $hxClasses['Void'] = { __ename__ : ["Void"] };
+		var Bool = $hxClasses['Bool'] = { __ename__ : ["Bool"] };
+		var Class = $hxClasses['Class'] = { __name__ : ["Class"] };
+		var Enum = {};
+		var Void = $hxClasses['Void'] = { __ename__ : ["Void"] };
 	}
 
 }
