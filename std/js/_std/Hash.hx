@@ -28,13 +28,7 @@
 	private var h : Dynamic;
 
 	public function new() : Void {
-		untyped {
-			h = __js__("{}");
-			if( h.__proto__ != null ) {
-				h.__proto__ = null;
-				__js__("delete")(h.__proto__);
-			}
-		}
+		h = {};
 	}
 
 	public function set( key : String, value : T ) : Void {
@@ -64,7 +58,12 @@
 
 	public function keys() : Iterator<String> {
 		var a = new Array<String>();
-		untyped __js__("for(var i in this.h) a.push(i.substr(1))");
+		untyped {
+			__js__("for( var k in this.h ) {");
+				if( this.hasOwnProperty.call(h,k) )
+					a.push(k.substr(1));
+			__js__("}");
+		}
 		return a.iterator();
 	}
 

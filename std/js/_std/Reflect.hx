@@ -116,10 +116,8 @@
 
 	public static function makeVarArgs( f : Array<Dynamic> -> Dynamic ) : Dynamic {
 		return function() untyped {
-			var a = new Array();
-			for( i in 0...arguments.length )
-				a.push(arguments[i]);
-			return f(a);
+			var array = Array.prototype.slice.call(__js__("arguments"));
+			f(array);
 		};
 	}
 

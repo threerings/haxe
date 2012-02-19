@@ -42,8 +42,8 @@ let s_path ctx = Ast.s_type_path
 let kwds =
 	let h = Hashtbl.create 0 in
 	List.iter (fun s -> Hashtbl.add h s ()) [
-		"abstract"; "as"; "boolean"; "break"; "byte"; "case"; "catch"; "char"; "class"; "continue"; "const";
-		"debugger"; "default"; "delete"; "do"; "double"; "else"; "enum"; "export"; "extends"; "false"; "final";
+		"abstract"; "as"; "arguments"; "boolean"; "break"; "byte"; "case"; "catch"; "char"; "class"; "continue"; "const";
+		"debugger"; "default"; "delete"; "do"; "double"; "else"; "enum"; "eval"; "export"; "extends"; "false"; "final";
 		"finally"; "float"; "for"; "function"; "goto"; "if"; "implements"; "import"; "in"; "instanceof"; "int";
 		"interface"; "is"; "long"; "namespace"; "native"; "new"; "null"; "package"; "private"; "protected";
 		"public"; "return"; "short"; "static"; "super"; "switch"; "synchronized"; "this"; "throw"; "throws";
@@ -874,6 +874,8 @@ let generate com =
 	| Some g -> g()
 	| None ->
 	let ctx = alloc_ctx com in
+	print ctx "\"use strict\"";
+	newline ctx;
 	if com.js_contain then begin
 		print ctx "(function () {";
 		newline ctx;
@@ -890,9 +892,9 @@ function $extend(from, fields) {
 	print ctx "js.Boot.__res = {}";
 	newline ctx;
 	if com.debug then begin
-		print ctx "%s = []" ctx.stack.Codegen.stack_var;
+		print ctx "var %s = []" ctx.stack.Codegen.stack_var;
 		newline ctx;
-		print ctx "%s = []" ctx.stack.Codegen.stack_exc_var;
+		print ctx "var %s = []" ctx.stack.Codegen.stack_exc_var;
 		newline ctx;
 	end;
 	print ctx "js.Boot.__init()";
