@@ -123,19 +123,24 @@ let add_mapping ctx pos =
 		length
 	in
 	let line, col = Lexer.find_pos pos in
+	let line = line - 1 in
+	let col = col - 1 in
 	if smap.source_last_file != file || smap.source_last_line != line || smap.source_last_col != col then begin
-		let f1 = smap.output_current_col - smap.output_last_col in
-		let f2 = file - smap.source_last_file in
-		let f3 = line - smap.source_last_line in
-		let f4 = col - smap.source_last_col in
-
 		if smap.print_comma then
 			Buffer.add_char smap.mappings ','
 		else
 			smap.print_comma <- true;
 
-		let encoder = Base64.encode (IO.output_string()) in
-		let encode number =
+		let base64_vlq number =
+			let encode_digit digit =
+				let chars = [|
+					'A';'B';'C';'D';'E';'F';'G';'H';'I';'J';'K';'L';'M';'N';'O';'P';
+					'Q';'R';'S';'T';'U';'V';'W';'X';'Y';'Z';'a';'b';'c';'d';'e';'f';
+					'g';'h';'i';'j';'k';'l';'m';'n';'o';'p';'q';'r';'s';'t';'u';'v';
+					'w';'x';'y';'z';'0';'1';'2';'3';'4';'5';'6';'7';'8';'9';'+';'/'
+				|] in
+				Array.unsafe_get chars digit
+			in
 			let to_vlq number =
 				if number < 0 then
 					((-number) lsl 1) + 1
@@ -149,26 +154,17 @@ let add_mapping ctx pos =
 				let continuation_bit = base in
 				let digit = vlq land mask in
 				let next = vlq asr shift in
-				IO.write encoder (Char.chr (
+				Buffer.add_char smap.mappings (encode_digit (
 					if next > 0 then digit lor continuation_bit else digit));
 				if next > 0 then loop next else ()
 			in
 			loop (to_vlq number)
 		in
 
-		encode f1;
-		encode f2;
-		encode f3;
-		encode f4;
-		Buffer.add_string smap.mappings (IO.close_out encoder);
-
-		(* Buffer.add_string smap.mappings ((string_of_int f1) ^ "|" ^ *)
-		(*     (string_of_int f2) ^ "|" ^ (string_of_int f3) ^ "|" ^ *)
-		(*     (string_of_int f4) ^ "\n"); *)
-
-		(* Buffer.add_string smap.mappings (Base64.str_encode *)
-		(*     (string_of_int f2) ^ "|" ^ (string_of_int f3) ^ "|" ^ *)
-		(*     (string_of_int f4) ^ "\n"); *)
+		base64_vlq (smap.output_current_col - smap.output_last_col);
+		base64_vlq (file - smap.source_last_file);
+		base64_vlq (line - smap.source_last_line);
+		base64_vlq (col - smap.source_last_col);
 
 		smap.source_last_file <- file;
 		smap.source_last_line <- line;
