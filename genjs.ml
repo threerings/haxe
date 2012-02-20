@@ -16,14 +16,32 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *)
+open Ast
 open Type
 open Common
+
+type pos = Ast.pos
+
+type sourcemap = {
+	mutable source_last_line : int;
+	mutable source_last_col : int;
+	mutable source_last_file : int;
+
+	mutable print_comma : bool;
+	mutable output_last_col : int;
+	mutable output_current_col : int;
+
+	sources : (string) DynArray.t;
+	sources_hash : (string, int) Hashtbl.t;
+	mappings : Buffer.t;
+}
 
 type ctx = {
 	com : Common.context;
 	buf : Buffer.t;
 	packages : (string list,unit) Hashtbl.t;
 	stack : Codegen.stack_context;
+	smap : sourcemap;
 	mutable current : tclass;
 	mutable statics : (tclass * string * texpr) list;
 	mutable inits : texpr list;
@@ -67,10 +85,121 @@ let field s = if Hashtbl.mem kwds s then "[\"" ^ s ^ "\"]" else "." ^ s
 let ident s = if Hashtbl.mem kwds s then "$" ^ s else s
 let anon_field s = if Hashtbl.mem kwds s || not (valid_js_ident s) then "'" ^ s ^ "'" else s
 
-let spr ctx s = ctx.separator <- false; Buffer.add_string ctx.buf s
-let print ctx = ctx.separator <- false; Printf.kprintf (fun s -> Buffer.add_string ctx.buf s)
+let handle_newlines ctx str =
+	let rec loop from =
+		try begin
+			let next = String.index_from str from '\n' + 1 in
+			Buffer.add_char ctx.smap.mappings ';';
+			ctx.smap.output_last_col <- 0;
+			ctx.smap.print_comma <- false;
+			loop next
+		end with Not_found ->
+			ctx.smap.output_current_col <- String.length str - from
+	in
+	loop 0
+
+let spr ctx s =
+	ctx.separator <- false;
+	handle_newlines ctx s;
+	Buffer.add_string ctx.buf s
+
+let print ctx =
+	ctx.separator <- false;
+	Printf.kprintf (fun s -> begin
+		handle_newlines ctx s;
+		Buffer.add_string ctx.buf s
+	end)
 
 let unsupported p = error "This expression cannot be compiled to Javascript" p
+
+let add_mapping ctx pos =
+	let smap = ctx.smap in
+	let file = try
+		Hashtbl.find smap.sources_hash pos.pfile
+	with Not_found ->
+		let length = DynArray.length smap.sources in
+		Hashtbl.replace smap.sources_hash pos.pfile length;
+		DynArray.add smap.sources pos.pfile;
+		length
+	in
+	let line, col = Lexer.find_pos pos in
+	if smap.source_last_file != file || smap.source_last_line != line || smap.source_last_col != col then begin
+		let f1 = smap.output_current_col - smap.output_last_col in
+		let f2 = file - smap.source_last_file in
+		let f3 = line - smap.source_last_line in
+		let f4 = col - smap.source_last_col in
+
+		if smap.print_comma then
+			Buffer.add_char smap.mappings ','
+		else
+			smap.print_comma <- true;
+
+		let encoder = Base64.encode (IO.output_string()) in
+		let encode number =
+			let to_vlq number =
+				if number < 0 then
+					((-number) lsl 1) + 1
+				else
+					number lsl 1
+			in
+			let rec loop vlq =
+				let shift = 5 in
+				let base = 1 lsl shift in
+				let mask = base - 1 in
+				let continuation_bit = base in
+				let digit = vlq land mask in
+				let next = vlq asr shift in
+				IO.write encoder (Char.chr (
+					if next > 0 then digit lor continuation_bit else digit));
+				if next > 0 then loop next else ()
+			in
+			loop (to_vlq number)
+		in
+
+		encode f1;
+		encode f2;
+		encode f3;
+		encode f4;
+		Buffer.add_string smap.mappings (IO.close_out encoder);
+
+		(* Buffer.add_string smap.mappings ((string_of_int f1) ^ "|" ^ *)
+		(*     (string_of_int f2) ^ "|" ^ (string_of_int f3) ^ "|" ^ *)
+		(*     (string_of_int f4) ^ "\n"); *)
+
+		(* Buffer.add_string smap.mappings (Base64.str_encode *)
+		(*     (string_of_int f2) ^ "|" ^ (string_of_int f3) ^ "|" ^ *)
+		(*     (string_of_int f4) ^ "\n"); *)
+
+		smap.source_last_file <- file;
+		smap.source_last_line <- line;
+		smap.source_last_col <- col;
+		smap.output_last_col <- smap.output_current_col
+	end
+
+let basename path =
+	try
+		let idx = String.rindex path '/' in
+		String.sub path (idx + 1) (String.length path - idx - 1)
+	with Not_found -> path
+
+let write_mappings ctx =
+	let basefile = basename ctx.com.file in
+	print ctx "\n//@ sourceMappingURL=%s.map" basefile;
+	let channel = open_out_bin (ctx.com.file ^ ".map") in
+	let sources = DynArray.to_list ctx.smap.sources in
+	output_string channel "{\n";
+	output_string channel "\"version\":3,\n";
+	output_string channel ("\"file\":\"" ^ basefile ^ "\",\n");
+	output_string channel ("\"sourceRoot\":\"file://\",\n");
+	output_string channel ("\"sources\":[" ^
+		(String.concat "," (List.map (fun s -> "\"" ^ Common.get_full_path s ^ "\"") sources)) ^
+		"],\n");
+	output_string channel "\"names\":[],\n";
+	output_string channel "\"mappings\":\"";
+	Buffer.output_buffer channel ctx.smap.mappings;
+	output_string channel "\"\n";
+	output_string channel "}";
+	close_out channel
 
 let newline ctx =
 	match Buffer.nth ctx.buf (Buffer.length ctx.buf - 1) with
@@ -101,10 +230,7 @@ let fun_block ctx f p =
 		| None | Some TNull -> e
 		| Some c -> Codegen.concat (Codegen.set_default ctx.com a c p) e
 	) f.tf_expr f.tf_args in
-	if ctx.com.debug then
-		Codegen.stack_block ctx.stack ctx.current (fst ctx.curmethod) e
-	else
-		e
+	e
 
 let open_block ctx =
 	let oldt = ctx.tabs in
@@ -533,6 +659,8 @@ and gen_block ctx e =
 	| _ -> newline ctx; gen_expr ctx e
 
 and gen_value ctx e =
+	if ctx.com.debug && e.epos.pmin >= 0 then
+		add_mapping ctx e.epos;
 	let assign e =
 		mk (TBinop (Ast.OpAssign,
 			mk (TLocal (match ctx.in_value with None -> assert false | Some v -> v)) t_dynamic e.epos,
@@ -842,6 +970,17 @@ let alloc_ctx com =
 		stack = Codegen.stack_init com false;
 		buf = Buffer.create 16000;
 		packages = Hashtbl.create 0;
+		smap = {
+			source_last_line = 0;
+			source_last_col = 0;
+			source_last_file = 0;
+			print_comma = false;
+			output_last_col = 0;
+			output_current_col = 0;
+			sources = DynArray.create();
+			sources_hash = Hashtbl.create 0;
+			mappings = Buffer.create 16;
+		};
 		statics = [];
 		inits = [];
 		current = null_class;
@@ -863,10 +1002,6 @@ let gen_single_expr ctx e constr =
 	Buffer.reset ctx.buf;
 	ctx.id_counter <- 0;
 	str
-
-let set_debug_infos ctx c m s =
-	ctx.current <- c;
-	ctx.curmethod <- (m,s)
 
 let generate com =
 	let t = Common.timer "generate js" in
@@ -891,12 +1026,6 @@ function $extend(from, fields) {
 	List.iter (generate_type ctx) com.types;
 	print ctx "js.Boot.__res = {}";
 	newline ctx;
-	if com.debug then begin
-		print ctx "var %s = []" ctx.stack.Codegen.stack_var;
-		newline ctx;
-		print ctx "var %s = []" ctx.stack.Codegen.stack_exc_var;
-		newline ctx;
-	end;
 	print ctx "js.Boot.__init()";
 	newline ctx;
 	List.iter (fun e ->
@@ -908,6 +1037,7 @@ function $extend(from, fields) {
 	| None -> ()
 	| Some e -> gen_expr ctx e);
 	if com.js_contain then print ctx "})()";
+	if com.debug then write_mappings ctx;
 	let ch = open_out_bin com.file in
 	output_string ch (Buffer.contents ctx.buf);
 	close_out ch);

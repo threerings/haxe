@@ -2243,7 +2243,7 @@ let make_macro_api ctx p =
 						| Some e -> Interp.encode_texpr e
 					));
 					"setDebugInfos", Interp.VFunction (Interp.Fun3 (fun c m s ->
-						Genjs.set_debug_infos js_ctx (match Interp.decode_tdecl c with TClassDecl c -> c | _ -> assert false) (Interp.dec_string m) (Interp.dec_bool s);
+						(* Deprecated, source maps are used instead *)
 						Interp.VNull
 					));
 					"generateConstructor", Interp.VFunction (Interp.Fun1 (fun v ->
